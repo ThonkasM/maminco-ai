@@ -2,7 +2,7 @@
 
 Table and column names follow the Prisma mapping in
 ``maminco-backend/prisma/schema.prisma`` (snake_case tables, camelCase columns
-mapped to snake_case, PostgreSQL ``OrderStatus`` enum).
+quoted as in the database, PostgreSQL ``OrderStatus`` enum).
 """
 
 from __future__ import annotations
@@ -10,26 +10,29 @@ from __future__ import annotations
 import pandas as pd
 from sqlalchemy import text
 
+from app.core.config import get_settings
 from app.db.session import get_engine
+
+LOCAL_CLOSED_AT = """((o."closedAt" AT TIME ZONE 'UTC') AT TIME ZONE :tz)"""
 
 CLOSED_ORDER_FILTER = """
     o.status = 'CLOSED'
-    AND o.deleted_at IS NULL
-    AND o.closed_at IS NOT NULL
+    AND o."deletedAt" IS NULL
+    AND o."closedAt" IS NOT NULL
 """
 
 _DAILY_SALES_SQL = text(
     f"""
     SELECT
-        date_trunc('day', o.closed_at)::date            AS date,
+        date_trunc('day', {LOCAL_CLOSED_AT})::date AS date,
         COALESCE(SUM(o.total), 0)::float8               AS total_sales,
         COUNT(*)::int                                   AS total_orders,
-        COALESCE(SUM(o.tip_amount), 0)::float8          AS total_tips,
-        COALESCE(SUM(o.discount_amount), 0)::float8     AS total_discount,
+        COALESCE(SUM(o."tipAmount"), 0)::float8          AS total_tips,
+        COALESCE(SUM(o."discountAmount"), 0)::float8     AS total_discount,
         COALESCE(AVG(o.total), 0)::float8               AS average_order_value
     FROM orders o
     WHERE {CLOSED_ORDER_FILTER}
-      AND o.closed_at >= NOW() - make_interval(days => :days)
+      AND o."closedAt" >= (NOW() AT TIME ZONE 'UTC') - make_interval(days => :days)
     GROUP BY 1
     ORDER BY 1
     """
@@ -38,18 +41,18 @@ _DAILY_SALES_SQL = text(
 _PRODUCT_DEMAND_SQL = text(
     f"""
     SELECT
-        date_trunc('day', o.closed_at)::date            AS date,
+        date_trunc('day', {LOCAL_CLOSED_AT})::date AS date,
         p.id                                            AS product_id,
         p.name                                          AS product_name,
         c.name                                          AS category_name,
         SUM(oi.quantity)::int                           AS quantity,
         COALESCE(SUM(oi.subtotal), 0)::float8           AS revenue
     FROM order_items oi
-    JOIN orders o   ON o.id = oi.order_id
-    JOIN products p ON p.id = oi.product_id
-    LEFT JOIN categories c ON c.id = p.category_id
+    JOIN orders o   ON o.id = oi."orderId"
+    JOIN products p ON p.id = oi."productId"
+    LEFT JOIN categories c ON c.id = p."categoryId"
     WHERE {CLOSED_ORDER_FILTER}
-      AND o.closed_at >= NOW() - make_interval(days => :days)
+      AND o."closedAt" >= (NOW() AT TIME ZONE 'UTC') - make_interval(days => :days)
     GROUP BY 1, 2, 3, 4
     ORDER BY 1
     """
@@ -58,13 +61,13 @@ _PRODUCT_DEMAND_SQL = text(
 _HOURLY_DEMAND_SQL = text(
     f"""
     SELECT
-        date_trunc('day', o.closed_at)::date            AS date,
-        EXTRACT(HOUR FROM o.closed_at)::int             AS hour,
+        date_trunc('day', {LOCAL_CLOSED_AT})::date AS date,
+        EXTRACT(HOUR FROM {LOCAL_CLOSED_AT})::int AS hour,
         COUNT(*)::int                                   AS orders,
         COALESCE(SUM(o.total), 0)::float8               AS sales
     FROM orders o
     WHERE {CLOSED_ORDER_FILTER}
-      AND o.closed_at >= NOW() - make_interval(days => :days)
+      AND o."closedAt" >= (NOW() AT TIME ZONE 'UTC') - make_interval(days => :days)
     GROUP BY 1, 2
     ORDER BY 1, 2
     """
@@ -74,17 +77,17 @@ _DAILY_METRICS_SQL = text(
     """
     SELECT
         dm.date                                         AS date,
-        dm.total_sales::float8                          AS total_sales,
-        dm.total_orders::int                            AS total_orders,
-        dm.average_order_value::float8                  AS average_order_value,
-        dm.mesa_orders::int                             AS mesa_orders,
-        dm.delivery_orders::int                         AS delivery_orders,
-        dm.recoger_orders::int                          AS recoger_orders,
-        dm.cash_payments::float8                        AS cash_payments,
-        dm.card_payments::float8                        AS card_payments,
-        dm.transfer_payments::float8                        AS transfer_payments
+        dm."totalSales"::float8                          AS total_sales,
+        dm."totalOrders"::int                            AS total_orders,
+        dm."averageOrderValue"::float8                  AS average_order_value,
+        dm."mesaOrders"::int                             AS mesa_orders,
+        dm."deliveryOrders"::int                         AS delivery_orders,
+        dm."recogerOrders"::int                          AS recoger_orders,
+        dm."cashPayments"::float8                        AS cash_payments,
+        dm."cardPayments"::float8                        AS card_payments,
+        dm."transferPayments"::float8                        AS transfer_payments
     FROM daily_metrics dm
-    WHERE dm.date >= (CURRENT_DATE - make_interval(days => :days))
+    WHERE dm.date >= ((NOW() AT TIME ZONE :tz)::date - make_interval(days => :days))
     ORDER BY dm.date
     """
 )
@@ -93,6 +96,7 @@ _DAILY_METRICS_SQL = text(
 def _read(sql, params: dict) -> pd.DataFrame:
     """Execute a read-only statement and return a DataFrame."""
 
+    params = {**params, "tz": get_settings().timezone}
     engine = get_engine()
     with engine.connect() as connection:
         return pd.read_sql(sql, connection, params=params)

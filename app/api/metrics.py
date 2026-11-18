@@ -37,6 +37,8 @@ class MetricsSummaryResponse(BaseModel):
     sales_model_chosen: str | None = None
     sales_model_mae: float | None = None
     baseline_mae: float | None = None
+    sales_model_mape: float | None = None
+    baseline_mape: float | None = None
     top_products: list[TopProduct] = Field(default_factory=list)
     generated_at: str | None = None
 

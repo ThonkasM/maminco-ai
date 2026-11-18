@@ -18,16 +18,20 @@ Missing or incorrect token -> `401 Unauthorized`:
 
 ## Degradation contract
 
-When there is not enough history (fewer than `AI_MIN_DAYS_REQUIRED` days of
-`CLOSED` orders) or the database is unreachable, endpoints return **HTTP 200**
+When there is not enough history (the sales forecast needs
+`max(AI_MIN_DAYS_REQUIRED, 36)` days *with sales*; anomalies need
+`AI_MIN_DAYS_REQUIRED`) or the database is unreachable, endpoints return **HTTP 200**
 with:
 
 ```json
 { "insufficient_data": true, "reason": "...", "forecast": [] }
 ```
 
-`forecast` is always present and empty on degradation. `reason` explains why.
-No data is ever fabricated.
+`forecast` is always present and empty on degradation. `reason` explains why
+(a database failure is reported only as `"Database unavailable."`; details go to
+the service log). No data is ever fabricated.
+
+Days are bucketed in the `AI_TIMEZONE` time zone (default `America/La_Paz`).
 
 ---
 
@@ -62,6 +66,10 @@ No authentication. Always `200`.
   "model_mae": 42.13,
   "baseline_mae": 58.77,
   "mape": 5.21,
+  "model_mape": 5.21,
+  "baseline_mape": 8.4,
+  "backtest_folds": 3,
+  "backtest_horizon": 7,
   "chosen": "model",
   "history_days": 120,
   "last_history_date": "2026-01-31",
@@ -155,6 +163,8 @@ No authentication. Always `200`.
   "sales_model_chosen": "model",
   "sales_model_mae": 42.13,
   "baseline_mae": 58.77,
+  "sales_model_mape": 5.21,
+  "baseline_mape": 8.4,
   "top_products": [{ "name": "Pato Criollo", "quantity": 812 }],
   "generated_at": "2026-01-31T12:05:00+00:00"
 }
@@ -174,10 +184,12 @@ Reloads data and refits models in-process (equivalent to a startup refresh).
   "sales_model_chosen": "model",
   "sales_model_mae": 42.13,
   "baseline_mae": 58.77,
+  "sales_model_mape": 5.21,
+  "baseline_mape": 8.4,
   "error": null,
   "generated_at": "2026-01-31T12:05:00+00:00"
 }
 ```
 
-On database failure it returns `ok: false` and the error string (still HTTP 200
+On database failure it returns `ok: false` and the generic error `"Database unavailable."` (still HTTP 200
 so the caller can distinguish "no data" from a transport failure).

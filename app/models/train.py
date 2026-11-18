@@ -67,23 +67,27 @@ def train() -> int:
         product_demand = queries.load_product_demand(settings.history_days)
         hourly_demand = queries.load_hourly_demand(settings.history_days)
     except Exception as exc:  # noqa: BLE001
-        logger.error("Could not read the database: %s", exc)
+        logger.error("Could not read the database: %s", type(exc).__name__)
         logger.error("Training aborted; no artifacts were written.")
         return 1
 
     series = sales_model.to_daily_series(daily_sales)
     history_days = int(len(series))
+    sales_days = sales_model.count_sales_days(series)
+    required = sales_model.required_days(settings.min_days_required)
 
-    if history_days < settings.min_days_required:
+    if sales_days < required:
         logger.warning(
-            "Insufficient data: %s days available, %s required. "
+            "Insufficient data: %s days with sales available, %s required. "
             "No artifacts written.",
-            history_days,
-            settings.min_days_required,
+            sales_days,
+            required,
         )
         return 0
 
-    fitted = sales_model.fit(series, seed=seed)
+    fitted = sales_model.fit(
+        series, seed=seed, min_days=settings.min_days_required
+    )
     if fitted is None:
         logger.warning("Sales model could not be fitted. No artifacts written.")
         return 0
@@ -91,11 +95,12 @@ def train() -> int:
     forecast = fitted.forecast(settings.default_horizon)
 
     logger.info("=" * 60)
-    logger.info("Sales model evaluation (holdout, seed=%s)", seed)
+    logger.info("Sales model evaluation (walk-forward, seed=%s)", seed)
     logger.info("  history days : %s", history_days)
     logger.info("  model MAE    : %s", forecast["model_mae"])
     logger.info("  baseline MAE : %s", forecast["baseline_mae"])
-    logger.info("  MAPE         : %s%%", forecast["mape"])
+    logger.info("  model MAPE   : %s%%", forecast["model_mape"])
+    logger.info("  baseline MAPE: %s%%", forecast["baseline_mape"])
     logger.info("  chosen       : %s", forecast["chosen"])
     logger.info("=" * 60)
 

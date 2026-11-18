@@ -1,12 +1,13 @@
-# Runtime dependencies for the Maminco AI forecasting service.
-fastapi>=0.115
-uvicorn[standard]>=0.30
-pydantic>=2.7
-pydantic-settings>=2.3
-python-dotenv>=1.0
-pandas>=2.2
-numpy>=1.26
-scikit-learn>=1.5
-statsmodels>=0.14
-SQLAlchemy>=2.0
-psycopg[binary]>=3.2
+# Runtime dependencies for the Maminco AI forecasting service (pinned).
+# Versions are the ones exercised by the test suite; bump deliberately.
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-dotenv==1.2.3
+pandas==3.0.6
+numpy==2.5.3
+scikit-learn==1.9.1
+SQLAlchemy==2.0.54
+psycopg[binary]==3.3.6
+tzdata==2026.2

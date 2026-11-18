@@ -30,6 +30,10 @@ class SalesForecastResponse(BaseModel):
     model_mae: float | None = None
     baseline_mae: float | None = None
     mape: float | None = None
+    model_mape: float | None = None
+    baseline_mape: float | None = None
+    backtest_folds: int | None = None
+    backtest_horizon: int | None = None
     chosen: str | None = None
     history_days: int | None = None
     last_history_date: str | None = None

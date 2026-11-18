@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+MIN_TOKEN_LENGTH = 32
 
 
 class Settings(BaseSettings):
@@ -33,8 +37,13 @@ class Settings(BaseSettings):
 
     # --- Security ---
     internal_service_token: str = Field(
-        default="change-me",
         description="Shared secret expected in the X-Internal-Token header.",
+    )
+
+    # --- Time ---
+    timezone: str = Field(
+        default="America/La_Paz",
+        description="IANA timezone used to bucket orders into business days and hours.",
     )
 
     # --- Observability ---
@@ -59,6 +68,27 @@ class Settings(BaseSettings):
             "http://127.0.0.1:3001",
         ]
     )
+
+    @field_validator("internal_service_token")
+    @classmethod
+    def _validate_token(cls, value: str) -> str:
+        token = value.strip()
+        if len(token) < MIN_TOKEN_LENGTH:
+            raise ValueError(
+                f"AI_INTERNAL_SERVICE_TOKEN must be at least {MIN_TOKEN_LENGTH} characters"
+            )
+        if "change-me" in token.lower() or "changeme" in token.lower():
+            raise ValueError("AI_INTERNAL_SERVICE_TOKEN must not be a placeholder value")
+        return token
+
+    @field_validator("timezone")
+    @classmethod
+    def _validate_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"AI_TIMEZONE is not a valid IANA timezone: {value}") from exc
+        return value
 
     @field_validator("cors_origins", mode="before")
     @classmethod

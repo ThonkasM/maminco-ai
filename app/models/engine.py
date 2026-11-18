@@ -24,6 +24,8 @@ from app.models import sales as sales_model
 
 logger = logging.getLogger(__name__)
 
+DATABASE_UNAVAILABLE = "Database unavailable."
+
 
 @dataclass
 class EngineState:
@@ -43,12 +45,12 @@ class EngineState:
         return int(len(self.sales_series))
 
     @property
+    def sales_days(self) -> int:
+        return sales_model.count_sales_days(self.sales_series)
+
+    @property
     def has_sufficient_sales_data(self) -> bool:
-        settings = get_settings()
-        return (
-            self.sales_fitted is not None
-            and self.history_days >= settings.min_days_required
-        )
+        return self.sales_fitted is not None
 
 
 class ForecastEngine:
@@ -70,7 +72,11 @@ class ForecastEngine:
                 daily_metrics = queries.load_daily_metrics(settings.history_days)
 
                 series = sales_model.to_daily_series(daily_sales)
-                sales_fitted = sales_model.fit(series, seed=settings.random_seed)
+                sales_fitted = sales_model.fit(
+                    series,
+                    seed=settings.random_seed,
+                    min_days=settings.min_days_required,
+                )
                 products_fitted = products_model.fit_products(
                     product_demand,
                     limit=50,
@@ -95,11 +101,11 @@ class ForecastEngine:
                     self.state.history_days,
                     len(self.state.products_fitted),
                 )
-            except Exception as exc:  # noqa: BLE001 - degrade gracefully, never crash
-                logger.warning("Forecast engine refresh failed: %s", exc)
+            except Exception:  # noqa: BLE001 - degrade gracefully, never crash
+                logger.exception("Forecast engine refresh failed")
                 self.state = EngineState(
                     loaded_at=datetime.now(timezone.utc),
-                    error=str(exc),
+                    error=DATABASE_UNAVAILABLE,
                     refresh_count=self.state.refresh_count + 1,
                 )
 
@@ -112,12 +118,12 @@ class ForecastEngine:
         settings = get_settings()
         state = self.state
         if state.error:
-            return _insufficient(f"Database unavailable: {state.error}", horizon)
+            return _insufficient(DATABASE_UNAVAILABLE, horizon)
         if not state.has_sufficient_sales_data or state.sales_fitted is None:
             return _insufficient(
                 "Not enough closed-order history to forecast "
-                f"(need at least {settings.min_days_required} days, "
-                f"have {state.history_days}).",
+                f"(need at least {sales_model.required_days(settings.min_days_required)} "
+                f"days with sales, have {state.sales_days}).",
                 horizon,
             )
         return state.sales_fitted.forecast(horizon)
@@ -125,7 +131,7 @@ class ForecastEngine:
     def product_forecast(self, horizon: int, limit: int) -> dict:
         state = self.state
         if state.error:
-            return _insufficient(f"Database unavailable: {state.error}", horizon)
+            return _insufficient(DATABASE_UNAVAILABLE, horizon)
         selected = state.products_fitted[:limit]
         return products_model.forecast_products(
             selected, horizon, min_days=get_settings().min_days_required
@@ -136,7 +142,7 @@ class ForecastEngine:
         if state.error:
             return {
                 "insufficient_data": True,
-                "reason": f"Database unavailable: {state.error}",
+                "reason": DATABASE_UNAVAILABLE,
                 "profile": [],
             }
         return peak_hours_model.build_peak_hours_profile(state.hourly_demand)
@@ -146,7 +152,7 @@ class ForecastEngine:
         if state.error:
             return {
                 "insufficient_data": True,
-                "reason": f"Database unavailable: {state.error}",
+                "reason": DATABASE_UNAVAILABLE,
                 "anomalies": [],
             }
         return anomaly_model.detect_anomalies(
@@ -158,7 +164,7 @@ class ForecastEngine:
         if state.error:
             return {
                 "insufficient_data": True,
-                "reason": f"Database unavailable: {state.error}",
+                "reason": DATABASE_UNAVAILABLE,
             }
         if state.daily_sales is None or state.daily_sales.empty:
             return {
@@ -193,6 +199,12 @@ class ForecastEngine:
             ),
             "baseline_mae": (
                 state.sales_fitted.baseline_mae if state.sales_fitted else None
+            ),
+            "sales_model_mape": (
+                state.sales_fitted.mape if state.sales_fitted else None
+            ),
+            "baseline_mape": (
+                state.sales_fitted.baseline_mape if state.sales_fitted else None
             ),
         }
 

@@ -65,10 +65,7 @@ def fit_products(
     for _, row in popularity.head(limit).iterrows():
         product_id = row["product_id"]
         series = _product_series(frame, product_id)
-        if len(series) < min_days:
-            continue
-
-        model = sales_model.fit(series, seed=seed)
+        model = sales_model.fit(series, seed=seed, min_days=min_days, max_folds=2)
         if model is None:
             continue
 
@@ -96,8 +93,8 @@ def forecast_products(
         return {
             "insufficient_data": True,
             "reason": (
-                "No product has enough daily history to forecast "
-                f"(minimum {min_days} days)."
+                "No product has enough days with sales to forecast "
+                f"(minimum {sales_model.required_days(min_days)} days)."
             ),
             "horizon": horizon,
             "forecast": [],

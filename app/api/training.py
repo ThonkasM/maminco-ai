@@ -22,6 +22,8 @@ class TrainResponse(BaseModel):
     sales_model_chosen: str | None = None
     sales_model_mae: float | None = None
     baseline_mae: float | None = None
+    sales_model_mape: float | None = None
+    baseline_mape: float | None = None
     error: str | None = None
     generated_at: str | None = None
 
@@ -48,5 +50,9 @@ def train() -> TrainResponse:
         sales_model_chosen=state.sales_fitted.chosen if state.sales_fitted else None,
         sales_model_mae=state.sales_fitted.model_mae if state.sales_fitted else None,
         baseline_mae=state.sales_fitted.baseline_mae if state.sales_fitted else None,
+        sales_model_mape=state.sales_fitted.mape if state.sales_fitted else None,
+        baseline_mape=(
+            state.sales_fitted.baseline_mape if state.sales_fitted else None
+        ),
         generated_at=datetime.now(timezone.utc).isoformat(),
     )

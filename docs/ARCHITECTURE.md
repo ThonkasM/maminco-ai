@@ -26,11 +26,11 @@ attaches a shared secret in the `X-Internal-Token` header.
 | Path | Responsibility |
 | --- | --- |
 | `app/core/config.py` | `Settings` (pydantic-settings, `AI_` prefix, `.env`). |
-| `app/core/security.py` | `verify_internal_token` dependency (constant-time compare). |
+| `app/core/security.py` | `verify_internal_token` dependency (constant-time compare on UTF-8 bytes). |
 | `app/db/session.py` | Lazy SQLAlchemy engine; read-only session guard. |
-| `app/db/queries.py` | Read-only SQL -> pandas DataFrames (daily, product, hourly). |
-| `app/models/baseline.py` | Seasonal-naive / moving-average / optional Holt-Winters. |
-| `app/models/sales.py` | GradientBoostingRegressor + feature engineering; fit-once. |
+| `app/db/queries.py` | Read-only SQL -> pandas DataFrames (daily, product, hourly), bucketed in `AI_TIMEZONE`. |
+| `app/models/baseline.py` | Seasonal-naive / moving-average baselines and error metrics. |
+| `app/models/sales.py` | GradientBoostingRegressor + feature engineering + walk-forward backtest; fit-once. |
 | `app/models/products.py` | Per-product demand models (fit-once). |
 | `app/models/peak_hours.py` | Hour-of-day descriptive profile. |
 | `app/models/anomalies.py` | Robust z-score + IQR anomaly detection. |
@@ -49,20 +49,30 @@ are captured in `engine.state.error`; endpoints then return
 
 ## Forecasting method
 
-1. Aggregate `CLOSED` orders to a continuous daily series (missing days = 0).
+1. Aggregate `CLOSED` orders to a continuous daily series in `AI_TIMEZONE`
+   (missing days = 0).
 2. Features: day-of-week, weekend flag, lag-1, lag-7, rolling means (7/14/28).
-3. Hold out the most recent slice; score a deterministic
-   `GradientBoostingRegressor` (`random_state` = `AI_RANDOM_SEED`).
-4. Compare MAE against the seasonal-naive baseline; keep the winner.
+3. Walk-forward backtest: for up to 3 origins (7 days apart) refit a
+   deterministic `GradientBoostingRegressor` (`random_state` = `AI_RANDOM_SEED`)
+   on data before the origin and forecast the next 7 days **recursively**, the
+   same way production forecasts are produced (no teacher forcing). The
+   baseline is scored on the same folds.
+4. Compare MAE; keep the winner. With too few training rows for any model fold
+   the baseline is chosen and `model_mae` is `null`.
 5. Produce a recursive multi-step forecast for the requested horizon.
 
-`model_mae`, `baseline_mae`, and `chosen` are always reported so callers can
-see how much the ML model actually adds over the baseline.
+`model_mae`, `baseline_mae`, `model_mape`, `baseline_mape`, `mape` (of the
+chosen method), `backtest_folds` and `chosen` are always reported so callers
+can see how much the ML model actually adds over the baseline.
 
 ## Graceful degradation
 
-- Fewer than `AI_MIN_DAYS_REQUIRED` (~14) days of history -> `insufficient_data`.
-- Database unreachable -> `insufficient_data` with the connection error.
+- Fewer than `max(AI_MIN_DAYS_REQUIRED, 36)` days *with sales* (the series is
+  zero-filled, so only days with revenue count) -> `insufficient_data` for the
+  sales/product forecasts; anomalies need `AI_MIN_DAYS_REQUIRED` (14).
+- Database unreachable -> `insufficient_data` with a generic
+  `Database unavailable.` reason; the driver error is only logged, never
+  returned (it can contain host names or credentials).
 - Empty product history -> product forecast returns `insufficient_data`.
 - `/health` always returns `200` and reports `models_loaded`, `history_days`,
   and any `database_error`.

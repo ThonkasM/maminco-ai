@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 
 # Configure the service before any application module is imported.
-os.environ["AI_INTERNAL_SERVICE_TOKEN"] = "test-token"
+os.environ["AI_INTERNAL_SERVICE_TOKEN"] = "t" * 40
 os.environ["AI_DATABASE_URL"] = "postgresql+psycopg://postgres:postgres@localhost:5432/test"
 os.environ["AI_MODEL_DIR"] = "data/models"
 os.environ.setdefault("AI_LOG_LEVEL", "WARNING")
@@ -23,7 +23,7 @@ from app.core.config import get_settings  # noqa: E402
 
 get_settings.cache_clear()
 
-AUTH_HEADERS = {"X-Internal-Token": "test-token"}
+AUTH_HEADERS = {"X-Internal-Token": "t" * 40}
 
 
 @pytest.fixture()

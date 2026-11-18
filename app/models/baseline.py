@@ -5,9 +5,8 @@ Two classical, deterministic baselines are provided:
 * seasonal-naive (same weekday from the previous week);
 * moving average.
 
-A Holt-Winters exponential smoothing baseline is also exposed when
-``statsmodels`` is installed. Baselines are used both as a fallback and as the
-reference point the machine-learning model must beat.
+Baselines are used both as a fallback and as the reference point the
+machine-learning model must beat.
 """
 
 from __future__ import annotations
@@ -66,31 +65,6 @@ def baseline_forecast(
     if len(values) >= 2 * season:
         return seasonal_naive_forecast(values, horizon, season=season)
     return moving_average_forecast(values, horizon, window=min(7, max(1, len(values))))
-
-
-def holt_winters_forecast(
-    values: Sequence[float], horizon: int, season: int = 7
-) -> list[float] | None:
-    """Optional Holt-Winters baseline (returns ``None`` if unavailable)."""
-
-    if len(values) < 2 * season:
-        return None
-
-    try:  # pragma: no cover - depends on optional dependency being installed
-        from statsmodels.tsa.holtwinters import ExponentialSmoothing
-
-        series = np.asarray([float(v) for v in values], dtype=float)
-        model = ExponentialSmoothing(
-            series,
-            trend=None,
-            seasonal="add",
-            seasonal_periods=season,
-            initialization_method="estimated",
-        ).fit(optimized=True)
-        forecast = model.forecast(horizon)
-        return [max(float(v), 0.0) for v in forecast]
-    except Exception:  # noqa: BLE001 - optional, never break the request
-        return None
 
 
 def mean_absolute_error(actual: Sequence[float], predicted: Sequence[float]) -> float:

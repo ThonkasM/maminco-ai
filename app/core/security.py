@@ -20,17 +20,12 @@ def verify_internal_token(
     """Validate the shared internal token.
 
     Raises ``401`` when the header is missing or does not match the configured
-    secret. Uses a constant-time comparison to avoid timing leaks.
+    secret. Compares UTF-8 bytes in constant time so malformed headers cannot
+    raise.
     """
 
-    expected = get_settings().internal_service_token
-    provided = x_internal_token or ""
-
-    if not expected:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal service token is not configured.",
-        )
+    expected = get_settings().internal_service_token.encode("utf-8")
+    provided = (x_internal_token or "").encode("utf-8")
 
     if not provided or not secrets.compare_digest(provided, expected):
         raise HTTPException(

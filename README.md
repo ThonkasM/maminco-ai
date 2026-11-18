@@ -7,9 +7,14 @@ never seeds data.
 
 - **Port:** `8000`
 - **Auth:** every route except `/health` requires the header `X-Internal-Token`
-  matching `AI_INTERNAL_SERVICE_TOKEN`. The backend proxy attaches it.
-- **Graceful degradation:** with fewer than ~14 days of `CLOSED` orders (or an
-  unreachable database) endpoints return HTTP `200` with
+  matching `AI_INTERNAL_SERVICE_TOKEN`. The backend proxy attaches it. The token
+  has no default: the service refuses to boot if it is missing, shorter than 32
+  characters or a placeholder (`change-me`).
+- **Time zone:** `AI_TIMEZONE` (default `America/La_Paz`, same as the backend
+  `REPORT_TIMEZONE`) decides which business day/hour an order belongs to.
+- **Graceful degradation:** with too little history (the sales forecast needs at
+  least 36 days *with sales*, see below) or an unreachable database endpoints
+  return HTTP `200` with
   `{"insufficient_data": true, "reason": "...", "forecast": []}`. No synthetic
   data is ever fabricated.
 
@@ -35,7 +40,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements-dev.txt
 
-cp .env.example .env          # then edit AI_DATABASE_URL / AI_INTERNAL_SERVICE_TOKEN
+cp .env.example .env          # set AI_DATABASE_URL and AI_INTERNAL_SERVICE_TOKEN (openssl rand -hex 32)
 
 uvicorn app.main:app --reload --port 8000
 ```
@@ -63,10 +68,25 @@ Tests never require a live database: the query layer is mocked.
 
 ## Docker
 
+This repo has **no Dockerfile**: the single source of truth is
+`maminco-infra/docker/ai.Dockerfile` (Python 3.12, multi-stage, non-root, tini,
+healthcheck on `/health`), built with this repo as context:
+
 ```bash
-docker build -t maminco-ai .
+docker build -f ../maminco-infra/docker/ai.Dockerfile -t maminco-ai .
 docker run --rm -p 8000:8000 --env-file .env maminco-ai
 ```
+
+`requirements.txt` is pinned; bump versions deliberately (Dependabot opens PRs).
+
+## Forecast quality
+
+The sales model is compared with the baseline using a **walk-forward recursive
+backtest** (up to 3 folds of 7 days; the model is refit before each origin and
+feeds its own predictions back as lags, like in production). `mape` is the MAPE
+of the chosen method; `baseline_mape` and `model_mape` are reported separately.
+The sales forecast needs at least 36 days with sales (28-day lags); below that
+the endpoint answers `insufficient_data`.
 
 ## Layout
 

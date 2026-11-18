@@ -34,3 +34,16 @@ def test_valid_token_is_accepted(client):
 def test_train_requires_token(client):
     assert client.post("/train").status_code == 401
     assert client.post("/train", headers=AUTH_HEADERS).status_code == 200
+
+
+def test_empty_token_is_rejected(client):
+    response = client.get("/forecast/sales", headers={"X-Internal-Token": ""})
+    assert response.status_code == 401
+
+
+def test_non_ascii_token_is_rejected_not_500(client):
+    response = client.get(
+        "/forecast/sales",
+        headers={"X-Internal-Token": "tóken-ñ".encode("latin-1")},
+    )
+    assert response.status_code == 401
